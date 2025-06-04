@@ -1,5 +1,6 @@
 package com.tecsup.demo.aop;
 
+import com.tecsup.demo.domain.entities.Alumno;
 import com.tecsup.demo.domain.entities.Auditoria;
 import com.tecsup.demo.domain.entities.Curso;
 import com.tecsup.demo.domain.persistence.AuditoriaDao;
@@ -31,47 +32,59 @@ public class LogginAspecto {
         Long currTime = System.currentTimeMillis();
         tx = System.currentTimeMillis();
         Logger logger = LoggerFactory.getLogger(joinPoint.getTarget().getClass());
-        String metodo = "[" + tx + "] - " + joinPoint.getSignature().getName();
-
-        if (joinPoint.getArgs().length > 0) {
-            logger.info(metodo + " () INPUT: " + Arrays.toString(joinPoint.getArgs()));
-        }
-
+        String metodo = "tx[" + tx + "] - " + joinPoint.getSignature().getName();
+        //logger.info(metodo + "()");
+        if (joinPoint.getArgs().length > 0)
+            logger.info(metodo + "() INPUT:" + Arrays.toString(joinPoint.getArgs()));
         try {
             result = joinPoint.proceed();
         } catch (Throwable e) {
             logger.error(e.getMessage());
         }
-
-        logger.info(metodo + " (): tiempo transcurrido " + (System.currentTimeMillis() - currTime) + " ms.");
+        logger.info(metodo + "(): tiempo transcurrido " + (System.currentTimeMillis() - currTime) + " ms.");
         return result;
     }
 
-    @After("execution(* com.tecsup.demo.controllers.*Controller.guardar*(..)) || " +
-            "execution(* com.tecsup.demo.controllers.*Controller.editar*(..)) || " +
+    @After("execution(* com.tecsup.demo.controllers.*Controller.guardar*(..)) ||" +
+            "execution(* com.tecsup.demo.controllers.*Controller.editar*(..)) ||" +
             "execution(* com.tecsup.demo.controllers.*Controller.eliminar*(..))")
-    public void auditoria(JoinPoint joinPoint) throws Throwable {
+    public void auditoriaGeneral(JoinPoint joinPoint) {
         Logger logger = LoggerFactory.getLogger(joinPoint.getTarget().getClass());
         String metodo = joinPoint.getSignature().getName();
+        Object[] parametros = joinPoint.getArgs();
 
+        String nombreEntidad = "";
         Integer id = null;
-        if(metodo.startsWith("guardar")){
-            Object[] parametros = joinPoint.getArgs();
-            Curso curso = (Curso)parametros[0];
-            id = curso.getId();
-        }
-        else if(metodo.startsWith("editar")){
-            Object[] parametros = joinPoint.getArgs();
-            id = (Integer)parametros[0];
-        }
-        else if(metodo.startsWith("eliminar")){
-            Object[] parametros = joinPoint.getArgs();
-            id = (Integer)parametros[0];
-        }
 
-        String traza = "tx[" + tx + "] - " + metodo;
-        logger.info(traza + " (): registrando auditoria...");
-        auditoriaDao.save(new Auditoria("cursos", id, Calendar.getInstance().getTime(),
-                "usuario", metodo));
+        try {
+            if (parametros[0] instanceof Alumno alumno) {
+                nombreEntidad = "alumnos";
+                id = alumno.getId();
+            } else if (parametros[0] instanceof Curso curso) {
+                nombreEntidad = "cursos";
+                id = curso.getId();
+            } else if (joinPoint.getTarget().getClass().getSimpleName().contains("Alumno")) {
+                nombreEntidad = "alumnos";
+                id = (Integer) parametros[0];
+            } else if (joinPoint.getTarget().getClass().getSimpleName().contains("Curso")) {
+                nombreEntidad = "cursos";
+                id = (Integer) parametros[0];
+            }
+
+            String usuario = "usuario"; // Puedes integrar Spring Security para obtener el usuario real
+
+            logger.info("[Auditoria] Tabla: {}, ID: {}, Accion: {}", nombreEntidad, id, metodo);
+
+            auditoriaDao.save(new Auditoria(
+                    nombreEntidad,
+                    id,
+                    Calendar.getInstance().getTime(),
+                    usuario,
+                    metodo
+            ));
+
+        } catch (Exception e) {
+            logger.error("Error al registrar auditoría en " + metodo, e);
+        }
     }
 }
